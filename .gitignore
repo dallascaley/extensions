@@ -1,0 +1,7 @@
+# Temp extraction artifacts
+_docx_extract/
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db

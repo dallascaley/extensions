@@ -1,0 +1,22 @@
+{
+    "manifest_version": 3,
+    "name": "PagerNanny",
+    "description": "Watch Pager Duty like a god damn nanny and make sure it doesn't wet the bed",
+    "version": "1.0",
+    "icons": {
+        "16": "images/nanny-16.png",
+        "48": "images/nanny-48.png",
+        "128": "images/nanny-128.png"
+    },
+    "action": {
+        "default_icon": {
+            "16": "images/nanny-16.png",
+            "48": "images/nanny-48.png",
+            "128": "images/nanny-128.png"
+        }
+    },
+    "content_scripts": [{
+        "matches": ["https://4asm.pagerduty.com/*"],
+        "js": ["main.js"]
+    }]
+}

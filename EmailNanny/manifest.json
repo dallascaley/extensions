@@ -1,0 +1,33 @@
+{
+    "manifest_version": 3,
+    "name": "EmailNanny",
+    "description": "Automatically delete old emails matching configured rules",
+    "version": "1.0",
+    "icons": {
+        "16": "images/nanny-16.png",
+        "48": "images/nanny-48.png",
+        "128": "images/nanny-128.png"
+    },
+    "action": {
+        "default_icon": {
+            "16": "images/nanny-16.png",
+            "48": "images/nanny-48.png",
+            "128": "images/nanny-128.png"
+        },
+        "default_popup": "popup.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "permissions": [
+        "identity",
+        "storage",
+        "alarms"
+    ],
+    "oauth2": {
+        "client_id": "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+        "scopes": [
+            "https://mail.google.com/"
+        ]
+    }
+}

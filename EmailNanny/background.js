@@ -41,6 +41,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         setupAlarm().then(() => sendResponse({ ok: true }));
         return true;
     }
+    if (msg.action === 'dryRun') {
+        runDryRun()
+            .then(results => sendResponse({ ok: true, results }))
+            .catch(err => sendResponse({ ok: false, error: err.message }));
+        return true;
+    }
 });
 
 async function setupAlarm() {
@@ -120,6 +126,22 @@ async function deleteMessage(token, messageId, permanent) {
     }
 }
 
+async function fetchSample(token, messageIds) {
+    return Promise.all(messageIds.slice(0, 5).map(async id => {
+        try {
+            const data = await gmailRequest(token,
+                `/messages/${id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From`);
+            const headers = data.payload.headers;
+            return {
+                subject: headers.find(h => h.name === 'Subject')?.value || '(no subject)',
+                from:    headers.find(h => h.name === 'From')?.value || ''
+            };
+        } catch {
+            return { subject: '(error fetching)', from: '' };
+        }
+    }));
+}
+
 async function processRule(token, rule, permanent) {
     const query = `${rule.query} older_than:${rule.olderThan}`;
     console.log(`[EmailNanny] Rule "${rule.name}": ${query}`);
@@ -129,6 +151,14 @@ async function processRule(token, rule, permanent) {
         await deleteMessage(token, msg.id, permanent);
     }
     return messages.length;
+}
+
+async function logHistory(entry) {
+    const data = await new Promise(r => chrome.storage.local.get({ runHistory: [] }, r));
+    const history = data.runHistory;
+    history.unshift(entry);
+    if (history.length > 100) history.splice(100);
+    await new Promise(r => chrome.storage.local.set({ runHistory: history }, r));
 }
 
 async function runCleanup() {
@@ -151,11 +181,13 @@ async function runCleanup() {
 
     let totalDeleted = 0;
     const errors = [];
+    const ruleDetails = [];
 
     for (const rule of enabledRules) {
         try {
             const count = await processRule(token, rule, config.permanentDelete);
             totalDeleted += count;
+            ruleDetails.push({ name: rule.name, count, error: null });
         } catch (err) {
             if (err.message === 'TOKEN_EXPIRED') {
                 await removeCachedToken(token);
@@ -163,11 +195,14 @@ async function runCleanup() {
                     token = await getAuthToken(false);
                     const count = await processRule(token, rule, config.permanentDelete);
                     totalDeleted += count;
+                    ruleDetails.push({ name: rule.name, count, error: null });
                 } catch (retryErr) {
                     errors.push(`${rule.name}: ${retryErr.message}`);
+                    ruleDetails.push({ name: rule.name, count: 0, error: retryErr.message });
                 }
             } else {
                 errors.push(`${rule.name}: ${err.message}`);
+                ruleDetails.push({ name: rule.name, count: 0, error: err.message });
             }
         }
     }
@@ -176,5 +211,38 @@ async function runCleanup() {
     const status = errors.length > 0
         ? `${action} ${totalDeleted} emails. Errors: ${errors.join('; ')}`
         : `${action} ${totalDeleted} emails`;
+
     await setStatus(status);
+    await logHistory({
+        timestamp: new Date().toISOString(),
+        permanent: config.permanentDelete,
+        totalDeleted,
+        rules: ruleDetails,
+        errors
+    });
+}
+
+async function runDryRun() {
+    const config = await getConfig();
+    const enabledRules = config.rules.filter(r => r.enabled);
+
+    let token;
+    try {
+        token = await getAuthToken(false);
+    } catch {
+        throw new Error('Not authorized — open EmailNanny and click Authorize first');
+    }
+
+    const results = [];
+    for (const rule of enabledRules) {
+        const query = `${rule.query} older_than:${rule.olderThan}`;
+        try {
+            const messages = await findMessages(token, query);
+            const sample = await fetchSample(token, messages.map(m => m.id));
+            results.push({ name: rule.name, query, count: messages.length, sample, error: null });
+        } catch (err) {
+            results.push({ name: rule.name, query, count: 0, sample: [], error: err.message });
+        }
+    }
+    return results;
 }

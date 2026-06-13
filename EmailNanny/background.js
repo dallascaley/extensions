@@ -1,5 +1,9 @@
+importScripts('config.js');
+
 const GMAIL_API = 'https://www.googleapis.com/gmail/v1/users/me';
 const ALARM_NAME = 'emailNannyCheck';
+const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 
 const DEFAULT_CONFIG = {
     enabled: false,
@@ -37,6 +41,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             .catch(err => sendResponse({ ok: false, error: err.message }));
         return true;
     }
+    if (msg.action === 'checkAuth') {
+        getStoredTokens().then(tokens => sendResponse({ authorized: !!(tokens && tokens.refreshToken) }));
+        return true;
+    }
     if (msg.action === 'settingsChanged') {
         setupAlarm().then(() => sendResponse({ ok: true }));
         return true;
@@ -70,20 +78,113 @@ function setStatus(msg) {
     return new Promise(resolve => chrome.storage.sync.set({ lastRun: now, lastRunStatus: msg }, resolve));
 }
 
-function getAuthToken(interactive = false) {
-    return new Promise((resolve, reject) => {
-        chrome.identity.getAuthToken({ interactive }, token => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-            } else {
-                resolve(token);
-            }
-        });
-    });
+function base64URLEncode(buffer) {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
-function removeCachedToken(token) {
-    return new Promise(resolve => chrome.identity.removeCachedAuthToken({ token }, resolve));
+async function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return base64URLEncode(array);
+}
+
+async function generateCodeChallenge(verifier) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return base64URLEncode(digest);
+}
+
+function getStoredTokens() {
+    return new Promise(resolve => chrome.storage.local.get({ oauthTokens: null }, d => resolve(d.oauthTokens)));
+}
+
+function storeTokens(tokens) {
+    return new Promise(resolve => chrome.storage.local.set({ oauthTokens: tokens }, resolve));
+}
+
+async function launchOAuthFlow() {
+    const codeVerifier = await generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`;
+
+    const authUrl = new URL(AUTH_ENDPOINT);
+    authUrl.searchParams.set('client_id', CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', 'https://mail.google.com/');
+    authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+
+    const redirectUrl = await new Promise((resolve, reject) => {
+        chrome.identity.launchWebAuthFlow({ url: authUrl.toString(), interactive: true }, url => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else resolve(url);
+        });
+    });
+
+    const code = new URL(redirectUrl).searchParams.get('code');
+    if (!code) throw new Error('No authorization code received');
+
+    const res = await fetch(TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            client_secret: CLIENT_SECRET,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code',
+            code,
+            code_verifier: codeVerifier
+        })
+    });
+
+    if (!res.ok) throw new Error(`Token exchange failed: ${await res.text()}`);
+
+    const data = await res.json();
+    await storeTokens({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt: Date.now() + (data.expires_in * 1000)
+    });
+    return data.access_token;
+}
+
+async function getAuthToken(interactive = false) {
+    const stored = await getStoredTokens();
+
+    if (stored && stored.expiresAt > Date.now() + 300000) {
+        return stored.accessToken;
+    }
+
+    if (stored && stored.refreshToken) {
+        try {
+            const res = await fetch(TOKEN_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    client_id: CLIENT_ID,
+                    client_secret: CLIENT_SECRET,
+                    grant_type: 'refresh_token',
+                    refresh_token: stored.refreshToken
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                await storeTokens({ ...stored, accessToken: data.access_token, expiresAt: Date.now() + (data.expires_in * 1000) });
+                return data.access_token;
+            }
+        } catch { /* fall through */ }
+    }
+
+    if (!interactive) throw new Error('Not authorized');
+    return launchOAuthFlow();
+}
+
+async function removeCachedToken(token) {
+    const stored = await getStoredTokens();
+    if (stored) await storeTokens({ ...stored, expiresAt: 0 });
 }
 
 async function gmailRequest(token, path, method = 'GET', body = null) {
@@ -118,11 +219,15 @@ async function findMessages(token, query) {
     return messages;
 }
 
-async function deleteMessage(token, messageId, permanent) {
-    if (permanent) {
-        await gmailRequest(token, `/messages/${messageId}`, 'DELETE');
-    } else {
-        await gmailRequest(token, `/messages/${messageId}/trash`, 'POST');
+async function deleteMessages(token, messageIds, permanent) {
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
+        const ids = messageIds.slice(i, i + BATCH_SIZE);
+        if (permanent) {
+            await gmailRequest(token, '/messages/batchDelete', 'POST', { ids });
+        } else {
+            await gmailRequest(token, '/messages/batchModify', 'POST', { ids, addLabelIds: ['TRASH'] });
+        }
     }
 }
 
@@ -147,9 +252,7 @@ async function processRule(token, rule, permanent) {
     console.log(`[EmailNanny] Rule "${rule.name}": ${query}`);
     const messages = await findMessages(token, query);
     console.log(`[EmailNanny] Rule "${rule.name}": found ${messages.length} messages`);
-    for (const msg of messages) {
-        await deleteMessage(token, msg.id, permanent);
-    }
+    await deleteMessages(token, messages.map(m => m.id), permanent);
     return messages.length;
 }
 

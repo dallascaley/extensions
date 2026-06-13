@@ -76,12 +76,8 @@ function initSettings() {
 }
 
 function checkAuthStatus() {
-    chrome.identity.getAuthToken({ interactive: false }, token => {
-        if (chrome.runtime.lastError || !token) {
-            setAuthStatus(false);
-        } else {
-            setAuthStatus(true);
-        }
+    chrome.runtime.sendMessage({ action: 'checkAuth' }, res => {
+        setAuthStatus(!!(res && res.authorized));
     });
 }
 

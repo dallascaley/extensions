@@ -27,5 +27,9 @@
         "identity",
         "storage",
         "alarms"
-    ]
+    ],
+    "host_permissions": [
+        "https://www.prosaurus.com/*"
+    ],
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA+OoOeyrRFKJUGVHvjeuTuapU4MOtw7BXk4wJkIsIprfG8UlAvnHAd+xI0eEF+/OctHNxFMJhfv/p0XhUDn3GXThfpdS9Zr/2KV1ErOSA3NgDWETjqvog2LuuCo6OLVc8iiQ8ePsKi6UQGM+itA+SUMtiC4NBg4yKURUWmLpFoQfzkfg3zKFqVu/dI3gIqbjvpT8S33VIQcQaD0Fwg28NVNF0UY8jrg40UfDOESi7DmRwT5QP5cgonzMD5qnwD6+HQAxkbnoqlni5DSVcUwqcOXZyxVv4hn0TaL5yVPOB6JTYsLr99YfLt2Hnn9FJXtB8CdqQ/CfaZ9saaFBzizWupwIDAQAB"
 }

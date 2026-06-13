@@ -1,7 +1,6 @@
-importScripts('config.js');
-
 const GMAIL_API = 'https://www.googleapis.com/gmail/v1/users/me';
 const ALARM_NAME = 'emailNannyCheck';
+const CLIENT_ID = '155241565760-rt66cdmjemmkijdobdnbah0qtp6m3gnk.apps.googleusercontent.com';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_EXCHANGE_ENDPOINT = 'https://www.prosaurus.com/api/emailnanny/token';
 const TOKEN_REFRESH_ENDPOINT = 'https://www.prosaurus.com/api/emailnanny/refresh';

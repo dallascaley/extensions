@@ -1,3 +1,6 @@
+# Secrets
+EmailNanny/config.js
+
 # Temp extraction artifacts
 _docx_extract/
 *.zip

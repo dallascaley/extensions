@@ -2,8 +2,9 @@ importScripts('config.js');
 
 const GMAIL_API = 'https://www.googleapis.com/gmail/v1/users/me';
 const ALARM_NAME = 'emailNannyCheck';
-const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const TOKEN_EXCHANGE_ENDPOINT = 'https://www.prosaurus.com/api/emailnanny/token';
+const TOKEN_REFRESH_ENDPOINT = 'https://www.prosaurus.com/api/emailnanny/refresh';
 
 const DEFAULT_CONFIG = {
     enabled: false,
@@ -127,17 +128,10 @@ async function launchOAuthFlow() {
     const code = new URL(redirectUrl).searchParams.get('code');
     if (!code) throw new Error('No authorization code received');
 
-    const res = await fetch(TOKEN_ENDPOINT, {
+    const res = await fetch(TOKEN_EXCHANGE_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-            client_id: CLIENT_ID,
-            client_secret: CLIENT_SECRET,
-            redirect_uri: redirectUri,
-            grant_type: 'authorization_code',
-            code,
-            code_verifier: codeVerifier
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, redirect_uri: redirectUri, code_verifier: codeVerifier })
     });
 
     if (!res.ok) throw new Error(`Token exchange failed: ${await res.text()}`);
@@ -160,15 +154,10 @@ async function getAuthToken(interactive = false) {
 
     if (stored && stored.refreshToken) {
         try {
-            const res = await fetch(TOKEN_ENDPOINT, {
+            const res = await fetch(TOKEN_REFRESH_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                    client_id: CLIENT_ID,
-                    client_secret: CLIENT_SECRET,
-                    grant_type: 'refresh_token',
-                    refresh_token: stored.refreshToken
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: stored.refreshToken })
             });
             if (res.ok) {
                 const data = await res.json();

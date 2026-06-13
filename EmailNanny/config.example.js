@@ -1,2 +1,1 @@
 const CLIENT_ID = 'YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com';
-const CLIENT_SECRET = 'YOUR_GOOGLE_OAUTH_CLIENT_SECRET';
